@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="FreshKe — Farm-fresh produce delivered to your door across Nairobi, Kenya.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="FreshKe">
+  <meta property="og:description" content="Farm-fresh produce delivered to your door in Kenya.">
+  <meta property="og:type" content="website">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="FreshKe">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>FreshKe</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #2E7D32;
+    }
+
+    /* Splash loading indicator shown before Flutter renders */
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #2E7D32;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      z-index: 9999;
+    }
+
+    #loading h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin: 16px 0 4px;
+      letter-spacing: -0.5px;
+    }
+
+    #loading p {
+      margin: 0;
+      opacity: 0.8;
+      font-size: 0.9rem;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <h1>FreshKe</h1>
+    <p>Farm fresh, delivered fast</p>
+  </div>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      document.getElementById('loading').style.display = 'none';
+    });
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
