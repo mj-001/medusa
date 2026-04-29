@@ -1,0 +1,242 @@
+version: "3.8"
+
+# ── Shared ERPNext environment ─────────────────────────────────────────────────
+x-erpnext-env: &erpnext-env
+  DB_HOST: mariadb
+  DB_PORT: "3306"
+  REDIS_CACHE: redis://redis-cache:6379
+  REDIS_QUEUE: redis://redis-queue:6379
+  REDIS_SOCKETIO: redis://redis-queue:6379
+  FRAPPE_SITE_NAME_HEADER: ${ERPNEXT_SITE:-erp.localhost}
+
+x-erpnext-volumes: &erpnext-volumes
+  - erpnext_sites:/home/frappe/frappe-bench/sites
+  - erpnext_logs:/home/frappe/frappe-bench/logs
+
+services:
+
+  # ── PostgreSQL — Medusa database ────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medusa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medusa}
+      POSTGRES_DB: medusa
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medusa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── RabbitMQ — event bus ────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"     # management UI → http://localhost:15672
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── MariaDB — ERPNext database ──────────────────────────────────────────────
+  mariadb:
+    image: mariadb:10.6
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-admin}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --password=${MARIADB_ROOT_PASSWORD:-admin} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis — ERPNext cache ────────────────────────────────────────────────────
+  redis-cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_cache_data:/data
+
+  # ── Redis — ERPNext queue / socketio ────────────────────────────────────────
+  redis-queue:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_queue_data:/data
+
+  # ── ERPNext configurator (one-time site setup) ──────────────────────────────
+  # Runs once on first boot. Creates the site, installs ERPNext, runs migrations.
+  # Safe to re-run — skips if site already exists.
+  erpnext-configurator:
+    image: frappe/erpnext:${ERPNEXT_VERSION:-v15}
+    restart: "no"
+    environment:
+      <<: *erpnext-env
+    volumes: *erpnext-volumes
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for MariaDB...' &&
+        until mysqladmin ping -h mariadb --password=${MARIADB_ROOT_PASSWORD:-admin} --silent 2>/dev/null; do sleep 2; done &&
+        echo 'MariaDB ready.' &&
+        bench --version &&
+        if bench --site ${ERPNEXT_SITE:-erp.localhost} list-apps 2>/dev/null | grep -q erpnext; then
+          echo 'Site already exists — skipping creation.';
+          bench --site ${ERPNEXT_SITE:-erp.localhost} migrate;
+        else
+          echo 'Creating site ${ERPNEXT_SITE:-erp.localhost}...' &&
+          bench new-site ${ERPNEXT_SITE:-erp.localhost}
+            --mariadb-root-password ${MARIADB_ROOT_PASSWORD:-admin}
+            --admin-password ${ERPNEXT_ADMIN_PASSWORD:-admin}
+            --install-app erpnext &&
+          bench --site ${ERPNEXT_SITE:-erp.localhost} set-config developer_mode 1 &&
+          echo 'Site ready.';
+        fi
+      "
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+
+  # ── ERPNext backend (gunicorn) ───────────────────────────────────────────────
+  erpnext-backend:
+    image: frappe/erpnext:${ERPNEXT_VERSION:-v15}
+    restart: unless-stopped
+    environment:
+      <<: *erpnext-env
+    volumes: *erpnext-volumes
+    ports:
+      - "8080:8000"       # ERPNext UI → http://localhost:8080
+    command: >
+      gunicorn
+        --chdir=/home/frappe/frappe-bench/sites
+        --bind=0.0.0.0:8000
+        --workers=2
+        --worker-class=gthread
+        --threads=4
+        --timeout=120
+        frappe.app:application
+    depends_on:
+      erpnext-configurator:
+        condition: service_completed_successfully
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/method/ping || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  # ── ERPNext WebSocket ────────────────────────────────────────────────────────
+  erpnext-websocket:
+    image: frappe/erpnext:${ERPNEXT_VERSION:-v15}
+    restart: unless-stopped
+    environment:
+      <<: *erpnext-env
+    volumes: *erpnext-volumes
+    ports:
+      - "9000:9000"
+    command: node /home/frappe/frappe-bench/apps/frappe/socketio.js
+    depends_on:
+      erpnext-backend:
+        condition: service_started
+
+  # ── ERPNext queue workers ────────────────────────────────────────────────────
+  erpnext-queue-short:
+    image: frappe/erpnext:${ERPNEXT_VERSION:-v15}
+    restart: unless-stopped
+    environment:
+      <<: *erpnext-env
+    volumes: *erpnext-volumes
+    command: bench worker --queue short,default
+    depends_on:
+      erpnext-backend:
+        condition: service_started
+
+  erpnext-queue-long:
+    image: frappe/erpnext:${ERPNEXT_VERSION:-v15}
+    restart: unless-stopped
+    environment:
+      <<: *erpnext-env
+    volumes: *erpnext-volumes
+    command: bench worker --queue long,default,short
+    depends_on:
+      erpnext-backend:
+        condition: service_started
+
+  # ── ERPNext scheduler ────────────────────────────────────────────────────────
+  erpnext-scheduler:
+    image: frappe/erpnext:${ERPNEXT_VERSION:-v15}
+    restart: unless-stopped
+    environment:
+      <<: *erpnext-env
+    volumes: *erpnext-volumes
+    command: bench schedule
+    depends_on:
+      erpnext-backend:
+        condition: service_started
+
+  # ── ERP Connector ────────────────────────────────────────────────────────────
+  # Bridges Medusa ↔ ERPNext through RabbitMQ.
+  # Subscribes to commerce events from RabbitMQ, syncs to ERPNext REST API.
+  # Hosts a webhook server so ERPNext can push inventory/stock updates back.
+  erp-connector:
+    build:
+      context: ./packages/erp-connector
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      ERPNEXT_URL: http://erpnext-backend:8000
+      ERPNEXT_SITE: ${ERPNEXT_SITE:-erp.localhost}
+      ERPNEXT_API_KEY: ${ERPNEXT_API_KEY:-}
+      ERPNEXT_API_SECRET: ${ERPNEXT_API_SECRET:-}
+      ERP_WEBHOOK_PORT: "4001"
+      NODE_ENV: production
+    ports:
+      - "4001:4001"       # ERPNext webhook endpoint
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      erpnext-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  mariadb_data:
+  redis_cache_data:
+  redis_queue_data:
+  erpnext_sites:
+  erpnext_logs:

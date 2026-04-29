@@ -1,0 +1,21 @@
+{
+  "name": "@medusajs/erp-connector",
+  "version": "2.14.1",
+  "description": "Medusa ↔ ERPNext integration via RabbitMQ",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "start": "node dist/connector.js"
+  },
+  "dependencies": {
+    "@medusajs/event-broker": "workspace:*",
+    "axios": "^1.7.0",
+    "express": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "typescript": "^5.0.0"
+  }
+}
