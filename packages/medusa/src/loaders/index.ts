@@ -28,6 +28,7 @@ import { join } from "path"
 import requestIp from "request-ip"
 import { v4 } from "uuid"
 import adminLoader from "./admin"
+import amqpInboundLoader from "./amqp-inbound"
 import apiLoader from "./api"
 
 type Options = {
@@ -209,6 +210,7 @@ export default async ({
   // Subscribers should be loaded no matter the worker mode, simply they will never handle anything
   // since worker/shared instances only will have a running worker to process events.
   await subscribersLoader(plugins, container)
+  await amqpInboundLoader(container)
 
   if (shouldLoadBackgroundProcessors(configModule)) {
     await jobsLoader(plugins, container)

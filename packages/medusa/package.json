@@ -73,6 +73,7 @@
     "@medusajs/currency": "2.14.1",
     "@medusajs/customer": "2.14.1",
     "@medusajs/draft-order": "2.14.1",
+    "@medusajs/event-broker": "workspace:*",
     "@medusajs/event-bus-local": "2.14.1",
     "@medusajs/event-bus-redis": "2.14.1",
     "@medusajs/file": "2.14.1",

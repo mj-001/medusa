@@ -1,0 +1,18 @@
+{
+  "name": "@medusajs/event-broker",
+  "version": "2.14.1",
+  "description": "Standalone RabbitMQ AMQP pub/sub broker — no Medusa dependency",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.5",
+    "typescript": "^5.0.0"
+  }
+}
